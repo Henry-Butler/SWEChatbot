@@ -107,8 +107,7 @@ if 'flask_thread_started' not in st.session_state:
     st.info('Flask API started at http://127.0.0.1:8000 (endpoints: /generate, /health)')
 
 # Streamlit UI
-st.title("📜 Custom GPT-2 Chatbot (MHA)")
-st.write("Generate text using a GPT-2 style model.")
+st.title("GPT-2 Chatbot")
 
 prompt = st.text_area("Enter prompt:", height=150)
 
