@@ -28,19 +28,19 @@ model = factory.getModel(
     d_ff=CFG["d_ff"],
     dropout=CFG["dropout"]
 )
-# Load trained weights
+# Load trained weights from pt file (must be in same folder as this file)
 model_path = os.path.join(os.getcwd(), "final_model.pt")
 model.load_weights(model_path, map_location=device)
 model.to(device)
 model.eval()
 
-# Setup chatbot wrapper
+# Instantiate chatbot wrapper
 chatbot = Chatbot(model, tok)
 
 # --- Flask API (runs in background thread) ---
 flask_app = Flask(__name__)
 
-
+# Route to provide chatbot response given input of prompt + parameters
 @flask_app.route('/generate', methods=['POST'])
 def api_generate():
     # Accept JSON or form
@@ -48,12 +48,16 @@ def api_generate():
         data = request.get_json()
     else:
         data = request.form.to_dict()
-
+        
+    # Extract prompt from input
     prompt = data.get('prompt')
     if not prompt:
         return jsonify({'error': '`prompt` is required'}), 400
 
+    # Extract prediction strategy (greedy, top-k, or top-p)
     strategy = (data.get('strategy') or 'greedy').lower()
+
+    # Extract other parameters or set defaults
     try:
         max_new_tokens = int(data.get('max_new_tokens', 50))
     except Exception:
@@ -71,6 +75,7 @@ def api_generate():
     except Exception:
         temperature = 1.0
 
+    # Generate output based on parameters and prediction strategy
     try:
         if strategy == 'greedy':
             out = chatbot.greedy(prompt, max_new_tokens=max_new_tokens)
@@ -85,10 +90,9 @@ def api_generate():
 
     return jsonify({'generated': out})
 
-
+# Simple health route to check chatbot is instantiated
 @flask_app.route('/health', methods=['GET'])
 def api_health():
-    # Basic health check: model present and callable
     ok = chatbot is not None
     return jsonify({'ok': ok})
 
@@ -101,7 +105,7 @@ def run_flask():
 if 'flask_thread_started' not in st.session_state:
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    # small sleep to give server a moment to start (optional)
+    # Small sleep to give server a moment to start
     time.sleep(0.1)
     st.session_state['flask_thread_started'] = True
     st.info('Flask API started at http://127.0.0.1:8000 (endpoints: /generate, /health)')
@@ -109,17 +113,22 @@ if 'flask_thread_started' not in st.session_state:
 # Streamlit UI
 st.title("GPT-2 Chatbot")
 
+# Textbox for prompt inputs
 prompt = st.text_area("Enter prompt:", height=150)
 
+# Multiple choice for strategy selection
 generation_type = st.radio(
     "Generation method:",
     ("Greedy", "Top-K", "Top-P")
 )
 
+# Sliders for other parameters
 max_tokens = st.slider("Max new tokens:", 10, 127, 50)
 k_val = st.slider("Top-K value:", 10, 100, 50)
 p_val = st.slider("Top-P (nucleus) probability:", 0.1, 1.0, 0.9)
 temp = st.slider("Temperature:", 0.1, 2.0, 1.0)
+
+# Button to initiate generation
 if st.button("Generate"):
     if not prompt.strip():
         st.warning("Please enter a prompt!")
@@ -130,6 +139,7 @@ if st.button("Generate"):
             "Top-K": "top_k",
             "Top-P": "top_p",
         }
+        # Pack user inputs into json format for api call
         payload = {
             "prompt": prompt,
             "strategy": strategy_map.get(generation_type, "greedy"),
@@ -141,11 +151,11 @@ if st.button("Generate"):
 
         with st.spinner("Generating via API..."):
             try:
+                # Make post request to flask server to recieve model generation
                 resp = requests.post("http://127.0.0.1:8000/generate", json=payload, timeout=120)
             except Exception as e:
                 st.error(f"Failed to call API: {e}")
                 resp = None
-
         if resp is None:
             pass
         else:
@@ -163,6 +173,6 @@ if st.button("Generate"):
                 except Exception as e:
                     st.error(f"Invalid response from API: {e}")
                     output = ""
-
+                # Display generation in seperate output text box
                 st.success("Generated text:")
                 st.text_area("Output:", output, height=300)
